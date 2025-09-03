@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumo — Backoffice Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>:root{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}</style>
+    <!-- React UMD + Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body class="bg-white text-neutral-900 antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+      const STORAGE_KEY = "lumo.chat.v1";
+
+      const outlineBtn = "inline-flex items-center justify-center gap-2 px-3.5 h-10 rounded-xl border border-neutral-300 bg-transparent text-neutral-800 hover:bg-neutral-50 transition-colors disabled:opacity-50";
+
+      function Bubble({ role, children, onCopy }) {
+        const base = "max-w-[80%] w-fit rounded-2xl px-4 py-2 text-[15px] leading-6";
+        const isUser = role === "user";
+        return (
+          <div className={isUser ? "ml-auto" : "mr-auto"}>
+            <div className={(isUser ? base + " border border-neutral-300" : base + " bg-neutral-100")}>
+              <div className="whitespace-pre-wrap">{children}</div>
+              {!isUser && (
+                <div className="mt-2 flex gap-2 text-xs text-neutral-500">
+                  <button className="underline" onClick={onCopy}>Copy</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function useChatStore(){
+        const [messages, setMessages] = useState(()=>{
+          try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
+        });
+
+        useEffect(()=>{
+          if(!messages){
+            const init = [{ role:"assistant", content:"Hi 👋 I’m Lumo. Ask me anything about your operations and I’ll keep it simple. (English only)"}];
+            setMessages(init);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
+          }
+        }, []);
+
+        useEffect(()=>{
+          if(messages){
+            const trimmed = messages.slice(-200);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+          }
+        }, [messages]);
+
+        function clear(){
+          const init = [{ role:"assistant", content:"Hi 👋 I’m Lumo. Ask me anything about your operations and I’ll keep it simple. (English only)"}];
+          setMessages(init);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
+        }
+
+        return { messages, setMessages, clear };
+      }
+
+      function App(){
+        const { messages, setMessages, clear } = useChatStore();
+        const [input, setInput] = useState("");
+        const [busy, setBusy] = useState(false);
+        const inputRef = useRef(null);
+
+        if(!messages) return null;
+
+        async function send(textFromBtn){
+          const text = (textFromBtn ?? input).trim();
+          if(!text || busy) return;
+          setInput("");
+          setBusy(true);
+
+          const next = [...messages, { role:"user", content:text }];
+          setMessages(next);
+
+          try{
+            const res = await fetch("/.netlify/functions/chat", {
+              method:"POST",
+              headers:{ "Content-Type":"application/json" },
+              body: JSON.stringify({ messages: next })
+            });
+            const data = await res.json();
+            setMessages(m => [...m, { role: data.role || "assistant", content: data.content || "…" }]);
+          }catch(e){
+            setMessages(m => [...m, { role:"assistant", content:"(Demo fallback) Inventory in Poland: 4,200 units. SLA(DE): 92%. Add OPENAI_API_KEY in Netlify to enable real chat." }]);
+          }finally{
+            setBusy(false);
+            setTimeout(()=>inputRef.current?.focus(), 0);
+          }
+        }
+
+        function quick(q){ send(q); }
+        function copyText(txt){ navigator.clipboard.writeText(txt).catch(()=>{}); }
+
+        return (
+          <div className="min-h-screen">
+            <div className="mx-auto max-w-3xl p-6 md:p-10">
+              <header className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Lumo — Backoffice Assistant</h1>
+                  <p className="text-sm md:text-base text-neutral-600 mt-1">Chat naturally. Lumo remembers your conversation on this device.</p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button className={outlineBtn} onClick={()=>quick("What’s the return rate in Spain last week?")}>Quick demo</button>
+                  <button className={outlineBtn} onClick={()=>quick("Show inventory for Poland")}>Inventory (PL)</button>
+                  <button className={outlineBtn} onClick={()=>quick("SLA in DE")}>SLA (DE)</button>
+                  <button className={outlineBtn} onClick={clear}>Clear history</button>
+                </div>
+              </header>
+
+              <div className="rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+                <div className="p-4 flex flex-col gap-3 bg-white">
+                  {messages.map((m,i)=>(
+                    <div key={i} className={m.role==="user" ? "flex justify-end" : "flex justify-start"}>
+                      <Bubble role={m.role} onCopy={()=>copyText(m.content)}>{m.content}</Bubble>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-neutral-200 p-3 bg-white">
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={inputRef}
+                      value={input}
+                      onChange={e=>setInput(e.target.value)}
+                      onKeyDown={e=>e.key==="Enter" && send()}
+                      placeholder="Type in English…"
+                      className="flex-1 h-11 rounded-xl border border-neutral-300 px-3.5 outline-none focus:ring-4 focus:ring-neutral-200"
+                    />
+                    <button className={outlineBtn+" h-11 px-4 font-medium"} onClick={()=>send()} disabled={busy}>
+                      {busy? "Thinking…" : "Send"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-neutral-500 mt-4">
+                Note: English only. Add <code>OPENAI_API_KEY</code> in Netlify → Environment variables to enable real conversation.
+              </p>
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+    </script>
+  </body>
+</html>
