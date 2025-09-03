@@ -1,0 +1,73 @@
+// netlify/functions/chat.js
+export async function handler(event) {
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: cors, body: "" };
+
+  try {
+    const body = JSON.parse(event.body || "{}");
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      // Fallback if no API key set
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", ...cors },
+        body: JSON.stringify({
+          role: "assistant",
+          content:
+            "Hi, I’m Lumo (demo mode). Example answers only. Add OPENAI_API_KEY in Netlify to enable real chat.",
+        }),
+      };
+    }
+
+    const sys = {
+      role: "system",
+      content:
+        "You are Lumo, a friendly, calm, professional backoffice assistant for operations leaders. Always answer in English, concise and clear.",
+    };
+
+    const payload = {
+      model: "gpt-4o-mini",
+      messages: [sys, ...messages],
+      temperature: 0.3,
+    };
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const details = await resp.text();
+      return {
+        statusCode: resp.status,
+        headers: { "Content-Type": "application/json", ...cors },
+        body: JSON.stringify({ error: "OpenAI error", details }),
+      };
+    }
+
+    const data = await resp.json();
+    const answer = data?.choices?.[0]?.message?.content || "…";
+
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", ...cors },
+      body: JSON.stringify({ role: "assistant", content: answer }),
+    };
+  } catch (e) {
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json", ...cors },
+      body: JSON.stringify({ error: "Server error", details: String(e) }),
+    };
+  }
+}
